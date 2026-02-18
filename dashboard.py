@@ -1,6 +1,6 @@
 import os, subprocess
 import psutil
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 
 app = Flask(__name__)
 
@@ -12,8 +12,13 @@ PROJECTS = [
         "description": "Live trading signals — ETH, XRP, ADA, SOL, LTC, BCH, DOGE",
         "service": "signaledge",
         "url": "http://89.167.67.39",
+        "path": "/opt/signal-project",
     },
 ]
+
+PROJECT_PATHS = {p["service"]: p["path"] for p in PROJECTS}
+
+VIEWABLE_EXTENSIONS = {".py", ".html", ".js", ".css", ".txt", ".md", ".json", ".yaml", ".yml", ".sh", ".env.example"}
 
 def service_status(name):
     try:
@@ -56,6 +61,33 @@ def service_action(name, action):
         return jsonify({"error": "not allowed"}), 403
     subprocess.run(["systemctl", action, name])
     return jsonify({"ok": True, "status": service_status(name)})
+
+@app.route("/api/files/<service>")
+def api_files(service):
+    path = PROJECT_PATHS.get(service)
+    if not path:
+        return jsonify({"error": "unknown project"}), 404
+    files = []
+    for f in sorted(os.listdir(path)):
+        full = os.path.join(path, f)
+        if os.path.isfile(full) and os.path.splitext(f)[1] in VIEWABLE_EXTENSIONS:
+            files.append(f)
+    return jsonify({"files": files})
+
+@app.route("/api/file/<service>")
+def api_file(service):
+    path = PROJECT_PATHS.get(service)
+    if not path:
+        return jsonify({"error": "unknown project"}), 404
+    filename = request.args.get("name", "")
+    # Security: no path traversal
+    safe = os.path.basename(filename)
+    full = os.path.join(path, safe)
+    if not os.path.isfile(full) or os.path.splitext(safe)[1] not in VIEWABLE_EXTENSIONS:
+        return jsonify({"error": "not allowed"}), 403
+    with open(full, "r", errors="replace") as f:
+        content = f.read()
+    return jsonify({"filename": safe, "content": content})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)

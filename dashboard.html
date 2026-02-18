@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Server Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <style>
     body { background: #0f1117; }
     .card { background: #1a1d27; border: 1px solid #2a2d3a; }
     .stat-bar-bg { background: #2a2d3a; }
-    .pulse-dot { animation: pulse 2s infinite; }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.4; }
-    }
+    .file-item:hover { background: #2a2d3a; }
+    .file-item.active { background: #2a2d3a; color: white; }
+    pre code.hljs { background: #161920 !important; border-radius: 0.5rem; font-size: 0.8rem; }
   </style>
 </head>
 <body class="text-gray-100 min-h-screen p-6 font-mono">
@@ -72,6 +72,29 @@
     <div id="projects" class="grid gap-4"></div>
   </div>
 
+  <!-- Code Viewer Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center p-6">
+    <div class="w-full max-w-5xl h-[80vh] flex flex-col rounded-xl overflow-hidden" style="background:#1a1d27; border:1px solid #2a2d3a">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between px-5 py-3 border-b border-gray-800">
+        <div>
+          <span id="modal-title" class="text-white font-bold"></span>
+          <span id="modal-file" class="text-gray-400 text-sm ml-3"></span>
+        </div>
+        <button onclick="closeModal()" class="text-gray-500 hover:text-white text-xl leading-none">✕</button>
+      </div>
+      <!-- Modal Body -->
+      <div class="flex flex-1 overflow-hidden">
+        <!-- File List -->
+        <div id="file-list" class="w-48 border-r border-gray-800 overflow-y-auto py-2 flex-shrink-0"></div>
+        <!-- Code -->
+        <div class="flex-1 overflow-auto p-4">
+          <pre id="code-block" class="h-full"><code id="code-content" class="text-sm">Select a file to view its code.</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     async function refresh() {
       try {
@@ -115,6 +138,7 @@
               ${p.running
                 ? `<button onclick="action('${p.service}', 'stop')" class="text-xs px-3 py-1.5 rounded bg-red-900 hover:bg-red-800 text-red-300 transition">Stop</button>`
                 : `<button onclick="action('${p.service}', 'start')" class="text-xs px-3 py-1.5 rounded bg-emerald-900 hover:bg-emerald-800 text-emerald-300 transition">Start</button>`}
+              <button onclick="openCode('${p.service}', '${p.name}')" class="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 transition">Code</button>
               <a href="${p.url}" target="_blank" class="text-xs px-3 py-1.5 rounded bg-blue-900 hover:bg-blue-800 text-blue-300 transition">Open →</a>
             </div>
           </div>
@@ -140,6 +164,49 @@
 
     refresh();
     setInterval(refresh, 10000);
+
+    // ── Code Viewer ──────────────────────────────────────────
+    let currentService = null;
+
+    async function openCode(service, name) {
+      currentService = service;
+      document.getElementById("modal-title").textContent = name;
+      document.getElementById("modal-file").textContent = "";
+      document.getElementById("code-content").textContent = "Select a file to view its code.";
+      document.getElementById("code-content").removeAttribute("class");
+      document.getElementById("modal").classList.remove("hidden");
+
+      const res   = await fetch(`/api/files/${service}`);
+      const data  = await res.json();
+      const list  = document.getElementById("file-list");
+      list.innerHTML = data.files.map(f => `
+        <div class="file-item px-4 py-2 text-sm text-gray-400 cursor-pointer rounded mx-1" onclick="loadFile('${f}', this)">${f}</div>
+      `).join("");
+    }
+
+    async function loadFile(filename, el) {
+      document.querySelectorAll(".file-item").forEach(i => i.classList.remove("active"));
+      el.classList.add("active");
+      document.getElementById("modal-file").textContent = "· " + filename;
+
+      const res  = await fetch(`/api/file/${currentService}?name=${encodeURIComponent(filename)}`);
+      const data = await res.json();
+      const ext  = filename.split(".").pop();
+      const langMap = { py: "python", html: "html", js: "javascript", css: "css", md: "markdown", sh: "bash", json: "json", yaml: "yaml", yml: "yaml" };
+
+      const block = document.getElementById("code-content");
+      block.textContent = data.content;
+      block.className = `language-${langMap[ext] || "plaintext"}`;
+      hljs.highlightElement(block);
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.add("hidden");
+    }
+
+    document.getElementById("modal").addEventListener("click", function(e) {
+      if (e.target === this) closeModal();
+    });
   </script>
 </body>
 </html>
